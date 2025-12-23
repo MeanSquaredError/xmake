@@ -117,12 +117,17 @@ function _find_package(opt)
         io.write(cmakedata .. "\n")
     end
 
+    local argv = {"-S", opt.work_dir}
+    if opt.generator then
+        table.insert(argv, "-G")
+        table.insert(argv, opt.generator)
+    end
     -- Run CMake.
     -- If the generated CMakeLists.txt fails to find the REQUIRED package, CMake will exit
     -- with code 1, os.vrunv will raise an error and the try{} block will return nil.
     -- We rely on opt.envs.CMAKE_BUILD_TYPE being set in main()
     local ok = try {function()
-        os.vrunv(opt.cmake_tool.program, {opt.work_dir}, {curdir = opt.work_dir, envs = opt.envs})
+        os.vrunv(opt.cmake_tool.program, argv, {curdir = opt.work_dir, envs = opt.envs})
         return true
     end}
     if not ok then
@@ -335,6 +340,7 @@ function main(name, opt)
         components = configs.components or opt.components or {},
         envs = envs,
         exe_name = "test_" .. name,
+        generator = configs.generator,
         include_directories = configs.include_directories or {},
         link_libraries = configs.link_libraries or {},
         moduledirs = configs.moduledirs or opt.moduledirs or {},
