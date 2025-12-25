@@ -51,6 +51,18 @@ function _find_package(opt)
     if opt.cmake_tool.version then
         cmakefile:print("cmake_minimum_required(VERSION %s)", opt.cmake_tool.version)
     end
+
+    -- Set CMake variables that affect third-party find scripts (e.g.Boost_USE_STATIC_LIB) or the
+    -- behavior of CMake itsel (e.g. CMAKE_EXPERIMENTAL_CXX_IMPORT_STD). Some presets only take
+    -- effect if they are set before the call to project(), that's why we place the presets before it.
+    for k, v in pairs(opt.presets) do
+        if type(v) == "boolean" then
+            cmakefile:print("set(%s %s)", k, v and "ON" or "OFF")
+        else
+            cmakefile:print("set(%s %s)", k, tostring(v))
+        end
+    end
+
     cmakefile:print("project(find_package)")
 
     -- e.g. OpenCV 4.1.1, Boost COMPONENTS regex system
@@ -79,14 +91,6 @@ function _find_package(opt)
         cmakefile:print("list(APPEND CMAKE_PREFIX_PATH \"%s\")", (prefixdir:gsub("\\", "/")))
     end
 
-    -- e.g. set(Boost_USE_STATIC_LIB ON)
-    for k, v in pairs(opt.presets) do
-        if type(v) == "boolean" then
-            cmakefile:print("set(%s %s)", k, v and "ON" or "OFF")
-        else
-            cmakefile:print("set(%s %s)", k, tostring(v))
-        end
-    end
     cmakefile:print("find_package(%s REQUIRED %s)", requirestr, componentstr)
     cmakefile:print("add_executable(%s test.cpp)", opt.exe_name)
     -- setup include directories
