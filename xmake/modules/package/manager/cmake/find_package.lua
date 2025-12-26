@@ -38,9 +38,7 @@ function _cmake_mode(mode)
     end
 end
 
--- find package
-function _find_package(opt)
-
+function _run_cmake(name, opt)
     os.tryrm(opt.work_dir)
     os.mkdir(opt.work_dir)
     io.writefile(path.join(opt.work_dir, "test.cpp"), "")
@@ -74,7 +72,7 @@ function _find_package(opt)
     -- it will be both mode if do not set this config.
     -- e.g. https://cmake.org/cmake/help/latest/command/find_package.html#id4
     if opt.search_mode then
-        requirestr = requirestr .. " " .. opt..search_mode:upper()
+        requirestr = requirestr .. " " .. opt.search_mode:upper()
     end
     local componentstr = ""
     if #opt.components > 0 then
@@ -134,180 +132,194 @@ function _find_package(opt)
         os.vrunv(opt.cmake_tool.program, argv, {curdir = opt.work_dir, envs = opt.envs})
         return true
     end}
-    if not ok then
-        return
-    end
+    return ok or false
+end
 
-    -- parse defines and includedirs for macosx/linux
-    local links
-    local linkdirs
-    local libfiles
-    local defines
-    local includedirs
-    local ldflags
+function _parse_makefiles_flags_make(opt)
     local flagsfile = path.join(opt.work_dir, "CMakeFiles", opt.exe_name .. ".dir", "flags.make")
-    if os.isfile(flagsfile) then
-        local flagsdata = io.readfile(flagsfile)
-        if flagsdata then
-            if option.get("diagnosis") then
-                cprint("finding includes from %s", flagsfile)
-                io.write(flagsdata .. "\n")
-            end
-            for _, line in ipairs(flagsdata:split("\n", {plain = true})) do
-                if line:find("CXX_INCLUDES =", 1, true) then
-                    local has_include = false
-                    local flags = os.argv(line:split("=", {plain = true})[2]:trim())
-                    for _, flag in ipairs(flags) do
-                        if has_include or (flag:startswith("-I") and #flag > 2) then
-                            local includedir = has_include and flag or flag:sub(3)
-                            if includedir and os.isdir(includedir) then
-                                includedirs = includedirs or {}
-                                table.insert(includedirs, includedir)
-                            end
-                            has_include = false
-                        elseif flag == "-isystem" or flag == "-I" then
-                            has_include = true
-                        end
+    if not os.isfile(flagsfile) then
+        return nil
+    end
+    local flagsdata = io.readfile(flagsfile)
+    if not flagsdata then
+        return nil
+    end
+    if option.get("diagnosis") then
+        cprint("finding includes from %s", flagsfile)
+        io.write(flagsdata .. "\n")
+    end
+    local defines = {}
+    local includedirs = {}
+    for _, line in ipairs(flagsdata:split("\n", {plain = true})) do
+        if line:find("CXX_INCLUDES =", 1, true) then
+            local has_include = false
+            local flags = os.argv(line:split("=", {plain = true})[2]:trim())
+            for _, flag in ipairs(flags) do
+                if has_include or (flag:startswith("-I") and #flag > 2) then
+                    local includedir = has_include and flag or flag:sub(3)
+                    if includedir and os.isdir(includedir) then
+                        table.insert(includedirs, includedir)
                     end
-                elseif line:find("CXX_DEFINES =", 1, true) then
-                    defines = defines or {}
-                    local flags = os.argv(line:split("=", {plain = true})[2]:trim())
-                    for _, flag in ipairs(flags) do
-                        if flag:startswith("-D") and #flag > 2 then
-                            local define = flag:sub(3)
-                            if define and not _should_exclude(define) then
-                                table.insert(defines, define)
-                            end
-                        end
+                    has_include = false
+                elseif flag == "-isystem" or flag == "-I" then
+                    has_include = true
+                end
+            end
+        elseif line:find("CXX_DEFINES =", 1, true) then
+            local flags = os.argv(line:split("=", {plain = true})[2]:trim())
+            for _, flag in ipairs(flags) do
+                if flag:startswith("-D") and #flag > 2 then
+                    local define = flag:sub(3)
+                    if define and not _should_exclude(define) then
+                        table.insert(defines, define)
                     end
                 end
             end
         end
     end
+    return {
+        defines = defines,
+        includedirs = includedirs
+    }
+end
 
-    -- parse links and linkdirs for macosx/linux
+function _parse_makefiles_links(opt)
     local linkfile = path.join(opt.work_dir, "CMakeFiles", opt.exe_name .. ".dir", "link.txt")
-    if os.isfile(linkfile) then
-        local linkdata = io.readfile(linkfile)
-        if linkdata then
-            if option.get("diagnosis") then
-                cprint("finding links from %s", linkfile)
-                io.write(linkdata .. "\n")
+    if not os.isfile(linkfile) then
+        return nil
+    end
+    local linkdata = io.readfile(linkfile)
+    if not linkdata then
+        return nil
+    end
+    if option.get("diagnosis") then
+        cprint("finding links from %s", linkfile)
+        io.write(linkdata .. "\n")
+    end
+    local links = {}
+    local linkdirs = {}
+    local libfiles = {}
+    local ldflags = {}
+    for _, line in ipairs(os.argv(linkdata)) do
+        local is_ldflags = false
+        local is_library = false
+        for _, suffix in ipairs({".so", ".dylib", ".tbd", ".lib"}) do
+            if line:startswith("-Wl,") then
+                is_ldflags = true
+                break
+            elseif line:find(suffix, 1, true) then
+                is_library = true
+                break
             end
-            for _, line in ipairs(os.argv(linkdata)) do
-                local is_ldflags = false
-                local is_library = false
-                for _, suffix in ipairs({".so", ".dylib", ".tbd", ".lib"}) do
-                    if line:startswith("-Wl,") then
-                        is_ldflags = true
-                        break
-                    elseif line:find(suffix, 1, true) then
-                        is_library = true
-                        break
-                    end
+        end
+        if is_ldflags then
+            table.insert(ldflags, line)
+        elseif is_library then
+            -- strip library version suffix, e.g. libxxx.so.1.1 -> libxxx.so
+            if line:find(".so", 1, true) then
+                line = line:gsub("lib(.-)%.so%..+$", "lib%1.so")
+            end
+
+            -- get libfiles
+            if os.isfile(line) then
+                table.insert(libfiles, line)
+            end
+
+            -- get links and linkdirs
+            local linkdir = path.directory(line)
+            if linkdir ~= "." then
+                table.insert(linkdirs, linkdir)
+            end
+            local link = target.linkname(path.filename(line))
+            if link then
+                table.insert(links, link)
+            end
+        -- is link? e.g. -lxxx
+        elseif line:startswith("-l") then
+            local link = line:sub(3):trim()
+            table.insert(links, link)
+        end
+    end
+    return {
+        links = links,
+        linkdirs = linkdirs,
+        libfiles = libfiles,
+        ldflags = ldflags
+    }
+end
+
+function _parse_makefiles(opt)
+    local parsed_flags_make = _parse_makefiles_flags_make(opt)
+    if not parsed_flags_make then
+        return nil
+    end
+    local parsed_links = _parse_makefiles_links(opt)
+    if not parsed_links then
+        return nil
+    end
+    return table.join(parsed_flags_make, parsed_links)
+end
+
+function _parse_visual_studio(opt)
+    local vcprojfile = path.join(opt.work_dir, opt.exe_name .. ".vcxproj")
+    if not os.isfile(vcprojfile) then
+        return nil
+    end
+    local vcprojdata = io.readfile(vcprojfile)
+    vcprojdata = vcprojdata:match("<ItemDefinitionGroup Condition=\"'$%(Configuration%)|$%(Platform%)'=='" .. opt.envs.CMAKE_BUILD_TYPE .. "|.->(.-)</ItemDefinitionGroup>")
+    if not vcprojdata then
+        return nil
+    end
+
+    local links = {}
+    local linkdirs = {}
+    local defines = {}
+    local libfiles = {}
+    local includedirs = {}
+    for _, line in ipairs(vcprojdata:split("\n", {plain = true})) do
+        local values = line:match("<AdditionalIncludeDirectories>(.+);%%%(AdditionalIncludeDirectories%)</AdditionalIncludeDirectories>")
+        if values then
+            table.join2(includedirs, path.splitenv(values))
+        end
+
+        values = line:match("<AdditionalDependencies>(.+)</AdditionalDependencies>")
+        if values then
+            for _, library in ipairs(path.splitenv(values)) do
+                -- get libfiles
+                if os.isfile(library) then
+                    table.insert(libfiles, library)
                 end
-                if is_ldflags then
-                    ldflags = ldflags or {}
-                    table.insert(ldflags, line)
-                elseif is_library then
-                    -- strip library version suffix, e.g. libxxx.so.1.1 -> libxxx.so
-                    if line:find(".so", 1, true) then
-                        line = line:gsub("lib(.-)%.so%..+$", "lib%1.so")
-                    end
 
-                    -- get libfiles
-                    if os.isfile(line) then
-                        libfiles = libfiles or {}
-                        table.insert(libfiles, line)
-                    end
-
-                    -- get links and linkdirs
-                    local linkdir = path.directory(line)
-                    if linkdir ~= "." then
-                        linkdirs = linkdirs or {}
-                        table.insert(linkdirs, linkdir)
-                    end
-                    local link = target.linkname(path.filename(line))
+                -- get links and linkdirs
+                local linkdir = path.directory(library)
+                linkdir = path.translate(linkdir)
+                if linkdir ~= "." and not linkdir:startswith(opt.work_dir) then
+                    table.insert(linkdirs, linkdir)
+                    local link = target.linkname(path.filename(library))
                     if link then
-                        links = links or {}
                         table.insert(links, link)
                     end
-                -- is link? e.g. -lxxx
-                elseif line:startswith("-l") then
-                    local link = line:sub(3):trim()
-                    links = links or {}
-                    table.insert(links, link)
+                end
+            end
+        end
+
+        values = line:match("<PreprocessorDefinitions>%%%(PreprocessorDefinitions%);(.+)</PreprocessorDefinitions>")
+        if values then
+            values = path.splitenv(values)
+            for _, value in ipairs(values) do
+                if not _should_exclude(value) then
+                    table.insert(defines, value)
                 end
             end
         end
     end
-
-    -- pares includedirs and links/linkdirs for windows
-    local vcprojfile = path.join(opt.work_dir, opt.exe_name .. ".vcxproj")
-    if os.isfile(vcprojfile) then
-        local vcprojdata = io.readfile(vcprojfile)
-        vcprojdata = vcprojdata:match("<ItemDefinitionGroup Condition=\"'$%(Configuration%)|$%(Platform%)'=='" .. opt.envs.CMAKE_BUILD_TYPE .. "|.->(.-)</ItemDefinitionGroup>")
-
-        if vcprojdata then
-            for _, line in ipairs(vcprojdata:split("\n", {plain = true})) do
-                local values = line:match("<AdditionalIncludeDirectories>(.+);%%%(AdditionalIncludeDirectories%)</AdditionalIncludeDirectories>")
-                if values then
-                    includedirs = includedirs or {}
-                    table.join2(includedirs, path.splitenv(values))
-                end
-
-                values = line:match("<AdditionalDependencies>(.+)</AdditionalDependencies>")
-                if values then
-                    for _, library in ipairs(path.splitenv(values)) do
-                        -- get libfiles
-                        if os.isfile(library) then
-                            libfiles = libfiles or {}
-                            table.insert(libfiles, library)
-                        end
-
-                        -- get links and linkdirs
-                        local linkdir = path.directory(library)
-                        linkdir = path.translate(linkdir)
-                        if linkdir ~= "." and not linkdir:startswith(opt.work_dir) then
-                            linkdirs = linkdirs or {}
-                            table.insert(linkdirs, linkdir)
-                            local link = target.linkname(path.filename(library))
-                            if link then
-                                links = links or {}
-                                table.insert(links, link)
-                            end
-                        end
-                    end
-                end
-
-                values = line:match("<PreprocessorDefinitions>%%%(PreprocessorDefinitions%);(.+)</PreprocessorDefinitions>")
-                if values then
-                    defines = defines or {}
-                    values = path.splitenv(values)
-                    for _, value in ipairs(values) do
-                        if not _should_exclude(value) then
-                            table.insert(defines, value)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- remove work directory
-    os.tryrm(opt.work_dir)
-
-    -- get results
-    if opt.allow_empty_package or links or includedirs then
-        local results = {}
-        results.links       = table.reverse_unique(links)
-        results.ldflags     = table.reverse_unique(ldflags)
-        results.linkdirs    = table.unique(linkdirs)
-        results.defines     = table.unique(defines)
-        results.libfiles    = table.unique(libfiles)
-        results.includedirs = table.unique(includedirs)
-        return results
-    end
+    return {
+        links = links,
+        linkdirs = linkdirs,
+        defines = defines,
+        libfiles = libfiles,
+        includedirs = includedirs
+    }
 end
 
 -- find package using the cmake package manager
@@ -358,5 +370,29 @@ function main(name, opt)
     if not opt.cmake_tool then
         return
     end
-    return _find_package(opt)
+    local parsed =
+        _run_cmake(opt) and
+        (
+            _parse_makefiles(opt) or
+            _parse_visual_studio(opt)
+        )
+    os.tryrm(opt.work_dir)
+    if not parsed then
+        return nil
+    end
+    if
+        not opt.allow_empty_package and
+        not parsed.links and
+        not parsed.includedirs
+    then
+        return nil
+    end
+    return {
+        links = table.reverse_unique(parsed.links),
+        ldflags = table.reverse_unique(parsed.ldflags),
+        linkdirs = table.unique(parsed.linkdirs),
+        defines = table.unique(parsed.defines),
+        libfiles = table.unique(parsed.libfiles),
+        includedirs = table.unique(parsed.includedirs)
+    }
 end
