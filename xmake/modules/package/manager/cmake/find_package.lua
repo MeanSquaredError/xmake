@@ -183,6 +183,15 @@ function _parse_makefiles_flags_make(opt)
     }
 end
 
+function _is_library(line)
+    for _, suffix in ipairs({".so", ".dylib", ".tbd", ".lib"}) do
+        if line:find(suffix, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
 function _parse_makefiles_links(opt)
     local linkfile = path.join(opt.work_dir, "CMakeFiles", opt.exe_name .. ".dir", "link.txt")
     if not os.isfile(linkfile) then
@@ -201,20 +210,9 @@ function _parse_makefiles_links(opt)
     local libfiles = {}
     local ldflags = {}
     for _, line in ipairs(os.argv(linkdata)) do
-        local is_ldflags = false
-        local is_library = false
-        for _, suffix in ipairs({".so", ".dylib", ".tbd", ".lib"}) do
-            if line:startswith("-Wl,") then
-                is_ldflags = true
-                break
-            elseif line:find(suffix, 1, true) then
-                is_library = true
-                break
-            end
-        end
-        if is_ldflags then
+        if line:startswith("-Wl,") then
             table.insert(ldflags, line)
-        elseif is_library then
+        elseif _is_library(line) then
             -- strip library version suffix, e.g. libxxx.so.1.1 -> libxxx.so
             if line:find(".so", 1, true) then
                 line = line:gsub("lib(.-)%.so%..+$", "lib%1.so")
@@ -234,8 +232,8 @@ function _parse_makefiles_links(opt)
             if link then
                 table.insert(links, link)
             end
-        -- is link? e.g. -lxxx
         elseif line:startswith("-l") then
+            -- is link, e.g. -lxxx
             local link = line:sub(3):trim()
             table.insert(links, link)
         end
