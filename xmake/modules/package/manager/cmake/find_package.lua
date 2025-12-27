@@ -204,7 +204,7 @@ function _find_package(cmake, name, opt)
             for _, line in ipairs(os.argv(linkdata)) do
                 local is_ldflags = false
                 local is_library = false
-                for _, suffix in ipairs({".so", ".dylib", ".dylib", ".tbd", ".lib"}) do
+                for _, suffix in ipairs({".so", ".dylib", ".tbd", ".lib"}) do
                     if line:startswith("-Wl,") then
                         is_ldflags = true
                         break
