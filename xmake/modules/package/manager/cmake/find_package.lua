@@ -20,7 +20,6 @@
 
 -- imports
 import("core.base.option")
-import("core.base.hashset")
 import("core.project.target")
 import("lib.detect.find_tool")
 
