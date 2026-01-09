@@ -80,8 +80,12 @@ function main(opt)
     if #opt.include_directories > 0 then
         includedirs = table.concat(table.wrap(opt.include_directories), " ")
     else
-        includedirs = ("${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS}"):format(opt.pkg_name, opt.pkg_name)
-        includedirs = includedirs .. (" ${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS}"):format(opt.pkg_name:upper(), opt.pkg_name:upper())
+        includedirs = ("${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS} ${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS}"):format(
+            opt.pkg_name,
+            opt.pkg_name,
+            opt.pkg_name:upper(),
+            opt.pkg_name:upper()
+        )
     end
     cmakefile:print("target_include_directories(%s PRIVATE %s)", opt.exe_name, includedirs)
     -- reserved for backword compatibility
@@ -91,8 +95,14 @@ function main(opt)
     if #opt.link_libraries > 0 then
         linklibs = table.concat(table.wrap(opt.link_libraries), " ")
     else
-        linklibs = ("${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS}"):format(opt.pkg_name, opt.pkg_name, opt.pkg_name)
-        linklibs = linklibs .. (" ${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS}"):format(opt.pkg_name:upper(), opt.pkg_name:upper(), opt.pkg_name:upper())
+        linklibs = ("${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS} ${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS}"):format(
+            opt.pkg_name,
+            opt.pkg_name,
+            opt.pkg_name,
+            opt.pkg_name:upper(),
+            opt.pkg_name:upper(),
+            opt.pkg_name:upper()
+        )
     end
     cmakefile:print("target_link_libraries(%s PRIVATE %s)", opt.exe_name, linklibs)
     cmakefile:close()
