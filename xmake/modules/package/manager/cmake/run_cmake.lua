@@ -22,18 +22,7 @@
 import("core.base.option")
 import("lib.detect.find_tool")
 
-function main(opt)
-    os.tryrm(opt.work_dir)
-    os.mkdir(opt.work_dir)
-    io.writefile(path.join(opt.work_dir, "test.cpp"), "")
-
-    -- generate CMakeLists.txt
-    local filepath = path.join(opt.work_dir, "CMakeLists.txt")
-    local cmakefile = io.open(filepath, "w")
-    if opt.cmake_tool.version then
-        cmakefile:print("cmake_minimum_required(VERSION %s)", opt.cmake_tool.version)
-    end
-
+function _add_presets(cmakefile, opt)
     -- Set CMake variables that affect third-party find scripts (e.g.Boost_USE_STATIC_LIB) or the
     -- behavior of CMake itsel (e.g. CMAKE_EXPERIMENTAL_CXX_IMPORT_STD). Some presets only take
     -- effect if they are set before the call to project(), that's why we place the presets before it.
@@ -44,9 +33,9 @@ function main(opt)
             cmakefile:print("set(%s %s)", k, tostring(v))
         end
     end
+end
 
-    cmakefile:print("project(find_package)")
-
+function _add_find_package(cmakefile, opt)
     -- e.g. OpenCV 4.1.1, Boost COMPONENTS regex system
     local requirestr = opt.pkg_name
     if opt.require_version and opt.require_version ~= "latest" then
@@ -72,10 +61,10 @@ function main(opt)
     for _, prefixdir in ipairs(opt.prefixdirs) do
         cmakefile:print("list(APPEND CMAKE_PREFIX_PATH \"%s\")", (prefixdir:gsub("\\", "/")))
     end
-
     cmakefile:print("find_package(%s REQUIRED %s)", requirestr, componentstr)
-    cmakefile:print("add_executable(%s test.cpp)", opt.exe_name)
-    -- setup include directories
+end
+
+function _add_include_directories(cmakefile, opt)
     local includedirs = ""
     if #opt.include_directories > 0 then
         includedirs = table.concat(table.wrap(opt.include_directories), " ")
@@ -90,7 +79,9 @@ function main(opt)
     cmakefile:print("target_include_directories(%s PRIVATE %s)", opt.exe_name, includedirs)
     -- reserved for backword compatibility
     cmakefile:print("target_include_directories(%s PRIVATE ${%s_CXX_INCLUDE_DIRS})", opt.exe_name, opt.pkg_name)
-    -- setup link library/target
+end
+
+function _add_link_libraries(cmakefile, opt)
     local linklibs = ""
     if #opt.link_libraries > 0 then
         linklibs = table.concat(table.wrap(opt.link_libraries), " ")
@@ -105,13 +96,9 @@ function main(opt)
         )
     end
     cmakefile:print("target_link_libraries(%s PRIVATE %s)", opt.exe_name, linklibs)
-    cmakefile:close()
-    if option.get("diagnosis") then
-        local cmakedata = io.readfile(filepath)
-        cprint("finding it from the generated CMakeLists.txt:")
-        io.write(cmakedata .. "\n")
-    end
+end
 
+function _run_tool(opt)
     local argv = {"-S", opt.work_dir}
     if opt.generator then
         table.insert(argv, "-G")
@@ -126,4 +113,29 @@ function main(opt)
         return true
     end}
     return ok or false
+end
+
+function main(opt)
+    os.tryrm(opt.work_dir)
+    os.mkdir(opt.work_dir)
+    io.writefile(path.join(opt.work_dir, "test.cpp"), "")
+
+    local filepath = path.join(opt.work_dir, "CMakeLists.txt")
+    local cmakefile = io.open(filepath, "w")
+    if opt.cmake_tool.version then
+        cmakefile:print("cmake_minimum_required(VERSION %s)", opt.cmake_tool.version)
+    end
+    _add_presets(cmakefile, opt)
+    cmakefile:print("project(find_package)")
+    _add_find_package(cmakefile, opt)
+    cmakefile:print("add_executable(%s test.cpp)", opt.exe_name)
+    _add_include_directories(cmakefile, opt)
+    _add_link_libraries(cmakefile, opt)
+    cmakefile:close()
+    if option.get("diagnosis") then
+        local cmakedata = io.readfile(filepath)
+        cprint("finding it from the generated CMakeLists.txt:")
+        io.write(cmakedata .. "\n")
+    end
+    return _run_tool(opt)
 end
