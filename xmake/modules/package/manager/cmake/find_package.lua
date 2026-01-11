@@ -19,6 +19,8 @@
 --
 
 -- imports
+import("core.base.semver")
+import("lib.detect.find_tool")
 import("package.manager.cmake.run_cmake")
 
 -- map xmake mode to cmake mode
@@ -55,12 +57,16 @@ end
 --                                      envs = {CMAKE_PREFIX_PATH = "xxx"}})
 --
 function main(name, opt)
+    local cmake_tool = find_tool("cmake", {version = true})
+    if not cmake_tool then
+        return
+    end
     local configs = opt.configs or {}
     local envs = configs.envs or opt.envs or {}
     envs.CMAKE_BUILD_TYPE = envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
     local opt = {
         allow_empty_package = configs.allow_empty_package,
-        cmake_tool = find_tool("cmake", {version = true}),
+        cmake_tool = cmake_tool,
         components = configs.components or opt.components or {},
         envs = envs,
         exe_name = "test_" .. name,
@@ -73,15 +79,18 @@ function main(name, opt)
         presets = configs.presets or opt.presets or {},
         require_version = opt.require_version,
         search_mode = configs.search_mode,
+        use_file_api = cmake_tool.version and semver.new(cmake_tool.version) >= "3.14",
         work_dir = os.tmpfile() .. ".dir"
     }
-    if not opt.cmake_tool then
-        return
-    end
     local parsed = nil
     if run_cmake(opt) then
-        import("package.manager.cmake.parse_legacy")
-        parsed = parse_legacy(opt)
+        if opt.use_file_api then
+            import("package.manager.cmake.parse_file_api")
+            parsed = parse_file_api(opt)
+        else
+            import("package.manager.cmake.parse_legacy")
+            parsed = parse_legacy(opt)
+        end
     end
     os.tryrm(opt.work_dir)
     if not parsed then

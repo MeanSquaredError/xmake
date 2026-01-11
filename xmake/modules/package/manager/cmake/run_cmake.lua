@@ -20,7 +20,6 @@
 
 -- imports
 import("core.base.option")
-import("lib.detect.find_tool")
 
 function _add_presets(cmakefile, opt)
     -- Set CMake variables that affect third-party find scripts (e.g.Boost_USE_STATIC_LIB) or the
@@ -115,6 +114,19 @@ function _run_tool(opt)
     return ok or false
 end
 
+function _add_file_api_query(opt)
+    if not opt.use_file_api then
+        return
+    end
+    local query_dir = path.join(opt.work_dir, ".cmake", "api", "v1", "query")
+    os.mkdir(query_dir)
+    local query_path = path.join(query_dir, "codemodel-v2")
+    if option.get("diagnosis") then
+        cprint("creating a shared CMake file API query: " .. query_path)
+    end
+    io.writefile(query_path, "")
+end
+
 function main(opt)
     os.tryrm(opt.work_dir)
     os.mkdir(opt.work_dir)
@@ -132,6 +144,7 @@ function main(opt)
     _add_include_directories(cmakefile, opt)
     _add_link_libraries(cmakefile, opt)
     cmakefile:close()
+    _add_file_api_query(opt)
     if option.get("diagnosis") then
         local cmakedata = io.readfile(filepath)
         cprint("finding it from the generated CMakeLists.txt:")
