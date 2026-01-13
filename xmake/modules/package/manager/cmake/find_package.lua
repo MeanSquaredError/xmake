@@ -134,7 +134,7 @@ function _find_package(cmake, name, opt)
 
     -- run cmake
     local envs = configs.envs or opt.envs or {}
-    envs.CMAKE_BUILD_TYPE = envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode or "release")
+    envs.CMAKE_BUILD_TYPE = envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
     -- If the generated CMakeLists.txt fails to find the REQUIRED package, CMake will exit
     -- with code 1, os.vrunv will raise an error and the try{} block will return nil.
     local ok = try {function()
@@ -253,7 +253,7 @@ function _find_package(cmake, name, opt)
     local vcprojfile = path.join(workdir, testname .. ".vcxproj")
     if os.isfile(vcprojfile) then
         local vcprojdata = io.readfile(vcprojfile)
-        local vs_mode = envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode or "release")
+        local vs_mode = envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
         vcprojdata = vcprojdata:match("<ItemDefinitionGroup Condition=\"'$%(Configuration%)|$%(Platform%)'=='" .. vs_mode .. "|.->(.-)</ItemDefinitionGroup>")
 
         if vcprojdata then
