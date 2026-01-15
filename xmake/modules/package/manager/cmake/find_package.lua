@@ -87,9 +87,8 @@ function _find_package(opt)
             cmakefile:print("set(%s %s)", k, tostring(v))
         end
     end
-    local testname = "test_" .. opt.pkg_name
     cmakefile:print("find_package(%s REQUIRED %s)", requirestr, componentstr)
-    cmakefile:print("add_executable(%s test.cpp)", testname)
+    cmakefile:print("add_executable(%s test.cpp)", opt.exe_name)
     -- setup include directories
     local includedirs = ""
     if #opt.include_directories > 0 then
@@ -98,10 +97,10 @@ function _find_package(opt)
         includedirs = ("${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS}"):format(opt.pkg_name, opt.pkg_name)
         includedirs = includedirs .. (" ${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS}"):format(opt.pkg_name:upper(), opt.pkg_name:upper())
     end
-    cmakefile:print("target_include_directories(%s PRIVATE %s)", testname, includedirs)
+    cmakefile:print("target_include_directories(%s PRIVATE %s)", opt.exe_name, includedirs)
     -- reserved for backword compatibility
     cmakefile:print("target_include_directories(%s PRIVATE ${%s_CXX_INCLUDE_DIRS})",
-        testname, opt.pkg_name)
+        opt.exe_name, opt.pkg_name)
     -- setup link library/target
     local linklibs = ""
     if #opt.link_libraries > 0 then
@@ -110,7 +109,7 @@ function _find_package(opt)
         linklibs = ("${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS}"):format(opt.pkg_name, opt.pkg_name, opt.pkg_name)
         linklibs = linklibs .. (" ${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS}"):format(opt.pkg_name:upper(), opt.pkg_name:upper(), opt.pkg_name:upper())
     end
-    cmakefile:print("target_link_libraries(%s PRIVATE %s)", testname, linklibs)
+    cmakefile:print("target_link_libraries(%s PRIVATE %s)", opt.exe_name, linklibs)
     cmakefile:close()
     if option.get("diagnosis") then
         local cmakedata = io.readfile(filepath)
@@ -137,7 +136,7 @@ function _find_package(opt)
     local defines
     local includedirs
     local ldflags
-    local flagsfile = path.join(opt.work_dir, "CMakeFiles", testname .. ".dir", "flags.make")
+    local flagsfile = path.join(opt.work_dir, "CMakeFiles", opt.exe_name .. ".dir", "flags.make")
     if os.isfile(flagsfile) then
         local flagsdata = io.readfile(flagsfile)
         if flagsdata then
@@ -178,7 +177,7 @@ function _find_package(opt)
     end
 
     -- parse links and linkdirs for macosx/linux
-    local linkfile = path.join(opt.work_dir, "CMakeFiles", testname .. ".dir", "link.txt")
+    local linkfile = path.join(opt.work_dir, "CMakeFiles", opt.exe_name .. ".dir", "link.txt")
     if os.isfile(linkfile) then
         local linkdata = io.readfile(linkfile)
         if linkdata then
@@ -235,7 +234,7 @@ function _find_package(opt)
     end
 
     -- pares includedirs and links/linkdirs for windows
-    local vcprojfile = path.join(opt.work_dir, testname .. ".vcxproj")
+    local vcprojfile = path.join(opt.work_dir, opt.exe_name .. ".vcxproj")
     if os.isfile(vcprojfile) then
         local vcprojdata = io.readfile(vcprojfile)
         local vs_mode = opt.envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
@@ -334,6 +333,7 @@ function main(name, opt)
         cmake_tool = find_tool("cmake", {version = true}),
         components = configs.components or opt.components or {},
         envs = configs.envs or opt.envs or {},
+        exe_name = "test_" .. name,
         include_directories = configs.include_directories or {},
         link_libraries = configs.link_libraries or {},
         mode = opt.mode,
