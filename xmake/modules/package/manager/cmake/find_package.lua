@@ -39,7 +39,7 @@ function _cmake_mode(mode)
 end
 
 -- find package
-function _find_package(cmake, name, opt)
+function _find_package(opt)
 
     -- get work directory
     local workdir = os.tmpfile() .. ".dir"
@@ -50,79 +50,67 @@ function _find_package(cmake, name, opt)
     -- generate CMakeLists.txt
     local filepath = path.join(workdir, "CMakeLists.txt")
     local cmakefile = io.open(filepath, "w")
-    if cmake.version then
-        cmakefile:print("cmake_minimum_required(VERSION %s)", cmake.version)
+    if opt.cmake_tool.version then
+        cmakefile:print("cmake_minimum_required(VERSION %s)", opt.cmake_tool.version)
     end
     cmakefile:print("project(find_package)")
 
     -- e.g. OpenCV 4.1.1, Boost COMPONENTS regex system
-    local requirestr = name
-    local configs = opt.configs or {}
+    local requirestr = opt.pkg_name
     if opt.require_version and opt.require_version ~= "latest" then
         requirestr = requirestr .. " " .. opt.require_version
     end
     -- set search mode, e.g. config, module
     -- it will be both mode if do not set this config.
     -- e.g. https://cmake.org/cmake/help/latest/command/find_package.html#id4
-    if configs.search_mode then
-        requirestr = requirestr .. " " .. configs.search_mode:upper()
+    if opt.search_mode then
+        requirestr = requirestr .. " " .. opt..search_mode:upper()
     end
-    -- use opt.components is for backward compatibility
     local componentstr = ""
-    local components = configs.components or opt.components
-    if components and #components > 0 then
+    if #opt.components > 0 then
         componentstr = "COMPONENTS"
-        for _, component in ipairs(components) do
+        for _, component in ipairs(opt.components) do
             componentstr = componentstr .. " " .. component
         end
     end
-    local moduledirs = configs.moduledirs or opt.moduledirs
-    if moduledirs then
-        for _, moduledir in ipairs(moduledirs) do
-            cmakefile:print("list(APPEND CMAKE_MODULE_PATH \"%s\")", (moduledir:gsub("\\", "/")))
-        end
+    for _, moduledir in ipairs(opt.moduledirs) do
+        cmakefile:print("list(APPEND CMAKE_MODULE_PATH \"%s\")", (moduledir:gsub("\\", "/")))
     end
     -- https://github.com/xmake-io/xmake/issues/6296
-    local prefixdirs = configs.prefixdirs or opt.prefixdirs
-    if prefixdirs then
-        for _, prefixdir in ipairs(prefixdirs) do
-            cmakefile:print("list(APPEND CMAKE_PREFIX_PATH \"%s\")", (prefixdir:gsub("\\", "/")))
-        end
+    for _, prefixdir in ipairs(opt.prefixdirs) do
+        cmakefile:print("list(APPEND CMAKE_PREFIX_PATH \"%s\")", (prefixdir:gsub("\\", "/")))
     end
 
     -- e.g. set(Boost_USE_STATIC_LIB ON)
-    local presets = configs.presets or opt.presets
-    if presets then
-        for k, v in pairs(presets) do
-            if type(v) == "boolean" then
-                cmakefile:print("set(%s %s)", k, v and "ON" or "OFF")
-            else
-                cmakefile:print("set(%s %s)", k, tostring(v))
-            end
+    for k, v in pairs(opt.presets) do
+        if type(v) == "boolean" then
+            cmakefile:print("set(%s %s)", k, v and "ON" or "OFF")
+        else
+            cmakefile:print("set(%s %s)", k, tostring(v))
         end
     end
-    local testname = "test_" .. name
+    local testname = "test_" .. opt.pkg_name
     cmakefile:print("find_package(%s REQUIRED %s)", requirestr, componentstr)
     cmakefile:print("add_executable(%s test.cpp)", testname)
     -- setup include directories
     local includedirs = ""
-    if configs.include_directories then
-        includedirs = table.concat(table.wrap(configs.include_directories), " ")
+    if #opt.include_directories > 0 then
+        includedirs = table.concat(table.wrap(opt.include_directories), " ")
     else
-        includedirs = ("${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS}"):format(name, name)
-        includedirs = includedirs .. (" ${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS}"):format(name:upper(), name:upper())
+        includedirs = ("${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS}"):format(opt.pkg_name, opt.pkg_name)
+        includedirs = includedirs .. (" ${%s_INCLUDE_DIR} ${%s_INCLUDE_DIRS}"):format(opt.pkg_name:upper(), opt.pkg_name:upper())
     end
     cmakefile:print("target_include_directories(%s PRIVATE %s)", testname, includedirs)
     -- reserved for backword compatibility
     cmakefile:print("target_include_directories(%s PRIVATE ${%s_CXX_INCLUDE_DIRS})",
-        testname, name)
+        testname, opt.pkg_name)
     -- setup link library/target
     local linklibs = ""
-    if configs.link_libraries then
-        linklibs = table.concat(table.wrap(configs.link_libraries), " ")
+    if #opt.link_libraries > 0 then
+        linklibs = table.concat(table.wrap(opt.link_libraries), " ")
     else
-        linklibs = ("${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS}"):format(name, name, name)
-        linklibs = linklibs .. (" ${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS}"):format(name:upper(), name:upper(), name:upper())
+        linklibs = ("${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS}"):format(opt.pkg_name, opt.pkg_name, opt.pkg_name)
+        linklibs = linklibs .. (" ${%s_LIBRARY} ${%s_LIBRARIES} ${%s_LIBS}"):format(opt.pkg_name:upper(), opt.pkg_name:upper(), opt.pkg_name:upper())
     end
     cmakefile:print("target_link_libraries(%s PRIVATE %s)", testname, linklibs)
     cmakefile:close()
@@ -133,12 +121,11 @@ function _find_package(cmake, name, opt)
     end
 
     -- run cmake
-    local envs = configs.envs or opt.envs or {}
-    envs.CMAKE_BUILD_TYPE = envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
+    opt.envs.CMAKE_BUILD_TYPE = opt.envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
     -- If the generated CMakeLists.txt fails to find the REQUIRED package, CMake will exit
     -- with code 1, os.vrunv will raise an error and the try{} block will return nil.
     local ok = try {function()
-        os.vrunv(cmake.program, {workdir}, {curdir = workdir, envs = envs})
+        os.vrunv(opt.cmake_tool.program, {workdir}, {curdir = workdir, envs = opt.envs})
         return true
     end}
     if not ok then
@@ -253,7 +240,7 @@ function _find_package(cmake, name, opt)
     local vcprojfile = path.join(workdir, testname .. ".vcxproj")
     if os.isfile(vcprojfile) then
         local vcprojdata = io.readfile(vcprojfile)
-        local vs_mode = envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
+        local vs_mode = opt.envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
         vcprojdata = vcprojdata:match("<ItemDefinitionGroup Condition=\"'$%(Configuration%)|$%(Platform%)'=='" .. vs_mode .. "|.->(.-)</ItemDefinitionGroup>")
 
         if vcprojdata then
@@ -306,7 +293,7 @@ function _find_package(cmake, name, opt)
     os.tryrm(workdir)
 
     -- get results
-    if configs.allow_empty_package or links or includedirs then
+    if opt.allow_empty_package or links or includedirs then
         local results = {}
         results.links       = table.reverse_unique(links)
         results.ldflags     = table.reverse_unique(ldflags)
@@ -343,10 +330,24 @@ end
 --                                      envs = {CMAKE_PREFIX_PATH = "xxx"}})
 --
 function main(name, opt)
-    opt = opt or {}
-    local cmake = find_tool("cmake", {version = true})
-    if not cmake then
+    local configs = opt.configs or {}
+    local opt = {
+        allow_empty_package = configs.allow_empty_package,
+        cmake_tool = find_tool("cmake", {version = true}),
+        components = configs.components or opt.components or {},
+        envs = configs.envs or opt.envs or {},
+        include_directories = configs.include_directories or {},
+        link_libraries = configs.link_libraries or {},
+        mode = opt.mode,
+        moduledirs = configs.moduledirs or opt.moduledirs or {},
+        pkg_name = name,
+        prefixdirs = configs.prefixdirs or opt.prefixdirs or {},
+        presets = configs.presets or opt.presets or {},
+        require_version = opt.require_version,
+        search_mode = configs.search_mode
+    }
+    if not opt.cmake_tool then
         return
     end
-    return _find_package(cmake, name, opt)
+    return _find_package(opt)
 end
