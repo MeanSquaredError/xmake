@@ -41,14 +41,12 @@ end
 -- find package
 function _find_package(opt)
 
-    -- get work directory
-    local workdir = os.tmpfile() .. ".dir"
-    os.tryrm(workdir)
-    os.mkdir(workdir)
-    io.writefile(path.join(workdir, "test.cpp"), "")
+    os.tryrm(opt.work_dir)
+    os.mkdir(opt.work_dir)
+    io.writefile(path.join(opt.work_dir, "test.cpp"), "")
 
     -- generate CMakeLists.txt
-    local filepath = path.join(workdir, "CMakeLists.txt")
+    local filepath = path.join(opt.work_dir, "CMakeLists.txt")
     local cmakefile = io.open(filepath, "w")
     if opt.cmake_tool.version then
         cmakefile:print("cmake_minimum_required(VERSION %s)", opt.cmake_tool.version)
@@ -125,7 +123,7 @@ function _find_package(opt)
     -- If the generated CMakeLists.txt fails to find the REQUIRED package, CMake will exit
     -- with code 1, os.vrunv will raise an error and the try{} block will return nil.
     local ok = try {function()
-        os.vrunv(opt.cmake_tool.program, {workdir}, {curdir = workdir, envs = opt.envs})
+        os.vrunv(opt.cmake_tool.program, {opt.work_dir}, {curdir = opt.work_dir, envs = opt.envs})
         return true
     end}
     if not ok then
@@ -139,7 +137,7 @@ function _find_package(opt)
     local defines
     local includedirs
     local ldflags
-    local flagsfile = path.join(workdir, "CMakeFiles", testname .. ".dir", "flags.make")
+    local flagsfile = path.join(opt.work_dir, "CMakeFiles", testname .. ".dir", "flags.make")
     if os.isfile(flagsfile) then
         local flagsdata = io.readfile(flagsfile)
         if flagsdata then
@@ -180,7 +178,7 @@ function _find_package(opt)
     end
 
     -- parse links and linkdirs for macosx/linux
-    local linkfile = path.join(workdir, "CMakeFiles", testname .. ".dir", "link.txt")
+    local linkfile = path.join(opt.work_dir, "CMakeFiles", testname .. ".dir", "link.txt")
     if os.isfile(linkfile) then
         local linkdata = io.readfile(linkfile)
         if linkdata then
@@ -237,7 +235,7 @@ function _find_package(opt)
     end
 
     -- pares includedirs and links/linkdirs for windows
-    local vcprojfile = path.join(workdir, testname .. ".vcxproj")
+    local vcprojfile = path.join(opt.work_dir, testname .. ".vcxproj")
     if os.isfile(vcprojfile) then
         local vcprojdata = io.readfile(vcprojfile)
         local vs_mode = opt.envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
@@ -263,7 +261,7 @@ function _find_package(opt)
                         -- get links and linkdirs
                         local linkdir = path.directory(library)
                         linkdir = path.translate(linkdir)
-                        if linkdir ~= "." and not linkdir:startswith(workdir) then
+                        if linkdir ~= "." and not linkdir:startswith(opt.work_dir) then
                             linkdirs = linkdirs or {}
                             table.insert(linkdirs, linkdir)
                             local link = target.linkname(path.filename(library))
@@ -290,7 +288,7 @@ function _find_package(opt)
     end
 
     -- remove work directory
-    os.tryrm(workdir)
+    os.tryrm(opt.work_dir)
 
     -- get results
     if opt.allow_empty_package or links or includedirs then
@@ -344,7 +342,8 @@ function main(name, opt)
         prefixdirs = configs.prefixdirs or opt.prefixdirs or {},
         presets = configs.presets or opt.presets or {},
         require_version = opt.require_version,
-        search_mode = configs.search_mode
+        search_mode = configs.search_mode,
+        work_dir = os.tmpfile() .. ".dir"
     }
     if not opt.cmake_tool then
         return
