@@ -117,10 +117,10 @@ function _find_package(opt)
         io.write(cmakedata .. "\n")
     end
 
-    -- run cmake
-    opt.envs.CMAKE_BUILD_TYPE = opt.envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
+    -- Run CMake.
     -- If the generated CMakeLists.txt fails to find the REQUIRED package, CMake will exit
     -- with code 1, os.vrunv will raise an error and the try{} block will return nil.
+    -- We rely on opt.envs.CMAKE_BUILD_TYPE being set in main()
     local ok = try {function()
         os.vrunv(opt.cmake_tool.program, {opt.work_dir}, {curdir = opt.work_dir, envs = opt.envs})
         return true
@@ -237,8 +237,7 @@ function _find_package(opt)
     local vcprojfile = path.join(opt.work_dir, opt.exe_name .. ".vcxproj")
     if os.isfile(vcprojfile) then
         local vcprojdata = io.readfile(vcprojfile)
-        local vs_mode = opt.envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
-        vcprojdata = vcprojdata:match("<ItemDefinitionGroup Condition=\"'$%(Configuration%)|$%(Platform%)'=='" .. vs_mode .. "|.->(.-)</ItemDefinitionGroup>")
+        vcprojdata = vcprojdata:match("<ItemDefinitionGroup Condition=\"'$%(Configuration%)|$%(Platform%)'=='" .. opt.envs.CMAKE_BUILD_TYPE .. "|.->(.-)</ItemDefinitionGroup>")
 
         if vcprojdata then
             for _, line in ipairs(vcprojdata:split("\n", {plain = true})) do
@@ -328,15 +327,16 @@ end
 --
 function main(name, opt)
     local configs = opt.configs or {}
+    local envs = configs.envs or opt.envs or {}
+    envs.CMAKE_BUILD_TYPE = envs.CMAKE_BUILD_TYPE or _cmake_mode(opt.mode)
     local opt = {
         allow_empty_package = configs.allow_empty_package,
         cmake_tool = find_tool("cmake", {version = true}),
         components = configs.components or opt.components or {},
-        envs = configs.envs or opt.envs or {},
+        envs = envs,
         exe_name = "test_" .. name,
         include_directories = configs.include_directories or {},
         link_libraries = configs.link_libraries or {},
-        mode = opt.mode,
         moduledirs = configs.moduledirs or opt.moduledirs or {},
         pkg_name = name,
         prefixdirs = configs.prefixdirs or opt.prefixdirs or {},
